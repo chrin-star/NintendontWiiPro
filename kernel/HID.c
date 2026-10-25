@@ -55,9 +55,59 @@ static u32 wMaxPacketSize = 0;
 static u32 MemPacketSize = 0;
 static u8 *Packet = (u8*)NULL;
 
+/* Nintendo Switch Pro Controller (USB 057E:2009).
+ * Phase 2: USB handshake and normalized 8-bit report for Nintendont.
+ */
+static s32 HIDInterruptMessage(u32 isKBreq, u8 *Data, u32 Length, u32 Endpoint, s32 asyncqueue, struct ipcmessage *asyncmsg);
+static u32 bEndpointAddressOut = 0;
+static u32 SwitchProActive = 0;
+static u32 SwitchProState = 0;
+static u8 SwitchProOut[64] ALIGNED(32);
+static s32 SwitchProSend(u8 command)
+{
+    memset32(SwitchProOut, 0, sizeof(SwitchProOut));
+    SwitchProOut[0] = 0x80;
+    SwitchProOut[1] = command;
+    sync_after_write(SwitchProOut, sizeof(SwitchProOut));
+    return HIDInterruptMessage(0, SwitchProOut, 64, bEndpointAddressOut, 0, NULL);
+}
+static s32 SwitchProReportMode(void)
+{
+    static const u8 neutral[8] = {0x00,0x01,0x40,0x40,0x00,0x01,0x40,0x40};
+    memset32(SwitchProOut, 0, sizeof(SwitchProOut));
+    SwitchProOut[0] = 0x01;
+    memcpy(SwitchProOut + 2, neutral, sizeof(neutral));
+    SwitchProOut[10] = 0x03;
+    SwitchProOut[11] = 0x30;
+    sync_after_write(SwitchProOut, sizeof(SwitchProOut));
+    return HIDInterruptMessage(0, SwitchProOut, 64, bEndpointAddressOut, 0, NULL);
+}
+
+/* Convert 12-bit packed axes to unsigned 8-bit axes. */
+static u8 SwitchProAxis(u32 v)
+{
+    return (u8)((v * 255U + 2047U) / 4095U);
+}
+static void SwitchProTranslate(void)
+{
+    u32 lx = (u32)Packet[6] | (((u32)Packet[7] & 15U) << 8);
+    u32 ly = ((u32)Packet[7] >> 4) | ((u32)Packet[8] << 4);
+    u32 rx = (u32)Packet[9] | (((u32)Packet[10] & 15U) << 8);
+    u32 ry = ((u32)Packet[10] >> 4) | ((u32)Packet[11] << 4);
+    /* Layout is private to 057E_2009.ini, NOT the raw Switch report. */
+    HID_Packet[0] = 0x30;
+    HID_Packet[1] = Packet[3]; /* A B X Y R ZR */
+    HID_Packet[2] = Packet[4]; /* plus minus home stick buttons */
+    HID_Packet[3] = Packet[5]; /* dpad L ZL */
+    HID_Packet[4] = SwitchProAxis(lx);
+    HID_Packet[5] = (u8)(255U - SwitchProAxis(ly));
+    HID_Packet[6] = SwitchProAxis(rx);
+    HID_Packet[7] = (u8)(255U - SwitchProAxis(ry));
+    sync_after_write(HID_Packet, 32);
+}
+
 static u32 RumbleType = 0;
 static u32 RumbleEnabled = 0;
-static u32 bEndpointAddressOut = 0;
 static u8 *RawRumbleDataOn = NULL;
 static u8 *RawRumbleDataOff = NULL;
 static u32 RawRumbleDataLen = 0;
@@ -262,6 +312,8 @@ s32 HIDOpen( u32 LoaderRequest )
 				HIDRumble = NULL;
 
 				RumbleEnabled = 0;
+                SwitchProActive = 0;
+                SwitchProState = 0;
 
 				ControllerID = DeviceID;
 				bEndpointAddressController = bEndpointAddress;
@@ -276,6 +328,12 @@ s32 HIDOpen( u32 LoaderRequest )
 				}
 				else if( DeviceVID == 0x057e && DevicePID == 0x0337 )
 					HIDGCInit();
+                else if(DeviceVID == 0x057e && DevicePID == 0x2009)
+                {
+                    SwitchProActive = 1;
+                    SwitchProState = 0;
+                    dbgprintf("HID: Switch Pro detected; handshake will start after config\r\n");
+                }
 
 			//Load controller config
 				char *Data = NULL;
@@ -569,6 +627,7 @@ s32 HIDOpen( u32 LoaderRequest )
 				sync_after_write(Packet, MemPacketSize);
 
 				memset32(HID_Packet, 0, MemPacketSize);
+                if(SwitchProActive) { HID_Packet[4] = 128; HID_Packet[5] = 128; HID_Packet[6] = 128; HID_Packet[7] = 128; }
 				sync_after_write(HID_Packet, MemPacketSize);
 
 				bool Polltype = HID_CTRL->Polltype;
@@ -595,6 +654,15 @@ s32 HIDOpen( u32 LoaderRequest )
 						HIDRumble = HIDPS3Rumble;
 				}
 
+                if(SwitchProActive)
+                {
+                    /* Start only after the controller has been fully configured. */
+                    if(bEndpointAddressOut == 0 || SwitchProSend(0x01) < 0)
+                    {
+                        dbgprintf("HID: Switch Pro initial USB command failed\r\n");
+                        SwitchProActive = 0;
+                    }
+                }
 				HIDControllerConnected = 1;
 				if(HIDKeyboardConnected)
 					break;
@@ -828,6 +896,24 @@ ctrlrumblerepeat:
 
 void HIDIRQRead()
 {
+    if(SwitchProActive)
+    {
+        if(SwitchProState == 0 && Packet[0] == 0x81 && Packet[1] == 0x01)
+        {
+            if(SwitchProSend(0x02) >= 0) SwitchProState = 1;
+        }
+        else if(SwitchProState == 1 && Packet[0] == 0x81 && Packet[1] == 0x02)
+        {
+            if(SwitchProSend(0x04) >= 0 && SwitchProReportMode() >= 0)
+                SwitchProState = 2;
+        }
+        else if(SwitchProState == 2 && Packet[0] == 0x30)
+        {
+            SwitchProTranslate();
+        }
+        HIDInterruptMessage(0, Packet, wMaxPacketSize, bEndpointAddressController, hidqueue, hidreadcontrollermsg);
+        return;
+    }
 	u8 controllerNumber;
 
 	switch( HID_CTRL->MultiIn )
