@@ -7,20 +7,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     container:
       image: devkitpro/devkitppc:latest
+
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      DEVKITARM: /opt/devkitpro/devkitARM
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Inspect toolchains
-        run: |
-          echo "DEVKITPRO=$DEVKITPRO"
-          echo "DEVKITPPC=$DEVKITPPC"
-          echo "DEVKITARM=$DEVKITARM"
-          powerpc-eabi-gcc --version || true
-          arm-none-eabi-gcc --version || true
 
       - name: Install ARM toolchain if missing
         run: |
@@ -28,14 +26,33 @@ jobs:
             dkp-pacman -Sy --noconfirm devkitARM
           fi
 
+      - name: Check libOGC headers
+        run: |
+          echo "Checking available LWP headers..."
+          find /opt/devkitpro/libogc/include \
+            -iname '*lwp*' -print
+
+      - name: Prepare legacy header compatibility
+        run: |
+          mkdir -p compat/ogc
+
+          cat > compat/ogc/lwp_threads.h <<'EOF'
+          #ifndef NINTENDONT_LEGACY_LWP_THREADS_H
+          #define NINTENDONT_LEGACY_LWP_THREADS_H
+
+          #include <ogc/lwp.h>
+
+          #endif
+          EOF
+
+          echo "Compatibility header created."
+
       - name: Compile Nintendont
         run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITPPC=/opt/devkitpro/devkitPPC
-          export DEVKITARM=/opt/devkitpro/devkitARM
+          export C_INCLUDE_PATH="$GITHUB_WORKSPACE/compat"
           make -j1
 
-      - name: Find generated DOL
+      - name: Find generated files
         if: success()
         run: |
           find . -type f -name '*.dol' -print
@@ -45,6 +62,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NintendontWiiPro-test
-          path: loader/loader.dol
+          path: nintendont/boot.dol
           if-no-files-found: error
           
