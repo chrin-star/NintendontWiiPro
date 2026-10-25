@@ -627,7 +627,7 @@ s32 HIDOpen( u32 LoaderRequest )
 				sync_after_write(Packet, MemPacketSize);
 
 				memset32(HID_Packet, 0, MemPacketSize);
-                if(SwitchProActive) { HID_Packet[4] = 128; HID_Packet[5] = 128; HID_Packet[6] = 128; HID_Packet[7] = 128; }
+				if(SwitchProActive) { ((u8*)HID_Packet)[4] = 128; ((u8*)HID_Packet)[5] = 128; ((u8*)HID_Packet)[6] = 128; ((u8*)HID_Packet)[7] = 128; }
 				sync_after_write(HID_Packet, MemPacketSize);
 
 				bool Polltype = HID_CTRL->Polltype;
