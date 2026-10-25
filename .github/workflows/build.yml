@@ -1,85 +1,47 @@
 
-name: Build Nintendont Wii Pro
+name: Diagnose Nintendont Toolchain
 
 on:
   push:
   workflow_dispatch:
 
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-latest
 
     container:
       image: devkitpro/devkitppc:latest
 
-    env:
-      DEVKITPRO: /opt/devkitpro
-      DEVKITPPC: /opt/devkitpro/devkitPPC
-      DEVKITARM: /opt/devkitpro/devkitARM
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download historical toolchains
+      - name: Download historical PPC package
         run: |
-          mkdir -p /tmp/nintendont-tools
-          cd /tmp/nintendont-tools
-
           curl -fL --retry 3 \
-            -o arm.pkg.tar.xz \
-            'https://wii.leseratte10.de/devkitPro/devkitARM/r53%20%282019-06%29/devkitARM-r53-1-linux.pkg.tar.xz'
-
-          curl -fL --retry 3 \
-            -o ppc.pkg.tar.xz \
+            -o /tmp/ppc.pkg.tar.xz \
             'https://wii.leseratte10.de/devkitPro/devkitPPC/r35/devkitPPC-r35-1-linux.pkg.tar.xz'
 
-          curl -fL --retry 3 \
-            -o libogc.pkg.tar.xz \
-            'https://wii.leseratte10.de/devkitPro/libogc/libogc_1.8.23%20%282019-10-02%29/libogc-1.8.23-1-any.pkg.tar.xz'
-
-          echo "=== Downloaded packages ==="
-          ls -lh *.pkg.tar.xz
-
-      - name: Install historical toolchains
+      - name: Inspect package and rules
         run: |
-          cd /tmp/nintendont-tools
+          echo "=== PACKAGE CONTENTS ==="
+          tar -tf /tmp/ppc.pkg.tar.xz \
+            | grep -E 'wii_rules|base_rules|gamecube_rules|bin/powerpc-eabi-gcc' \
+            || true
 
-          echo "=== Package structure ==="
-          tar -tf arm.pkg.tar.xz | head -15 || true
-          tar -tf ppc.pkg.tar.xz | head -15 || true
-          tar -tf libogc.pkg.tar.xz | head -15 || true
+          echo "=== PACKAGE ROOT ==="
+          tar -tf /tmp/ppc.pkg.tar.xz | head -30 || true
 
-          rm -rf /opt/devkitpro/devkitARM
-          rm -rf /opt/devkitpro/devkitPPC
-          rm -rf /opt/devkitpro/libogc
+          echo "=== CURRENT INSTALLATION ==="
+          find /opt/devkitpro \
+            -name 'wii_rules' \
+            -o -name 'base_rules' \
+            -o -name 'gamecube_rules'
 
-          tar -xJf arm.pkg.tar.xz -C /
-          tar -xJf ppc.pkg.tar.xz -C /
-          tar -xJf libogc.pkg.tar.xz -C /
+          echo "=== FATFS MAKEFILE ==="
+          sed -n '1,100p' fatfs/Makefile.ppc
 
-          echo "=== Installed compilers ==="
-          /opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc --version
-          /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc --version
-
-          echo "=== libOGC ==="
-          ls /opt/devkitpro/libogc/include/ogc/lwp_threads.h
-
-      - name: Compile Nintendont
-        run: |
-          export PATH="$DEVKITPPC/bin:$DEVKITARM/bin:$PATH"
-          make -j1
-
-      - name: Locate generated DOL
-        if: success()
-        run: |
-          find . -type f -name '*.dol' -print
-
-      - name: Upload Nintendont
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: NintendontWiiPro-test
-          path: loader/loader.dol
-          if-no-files-found: error
+          echo "=== CURRENT VARIABLES ==="
+          echo "DEVKITPRO=$DEVKITPRO"
+          echo "DEVKITPPC=$DEVKITPPC"
           
