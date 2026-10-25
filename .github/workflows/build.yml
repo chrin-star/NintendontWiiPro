@@ -21,60 +21,65 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install ARM toolchain if missing
+      - name: Download historical toolchains
         run: |
-          if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
-            dkp-pacman -Sy --noconfirm devkitARM
-          fi
+          mkdir -p /tmp/nintendont-tools
+          cd /tmp/nintendont-tools
 
-      - name: Diagnose legacy libOGC API
+          curl -fL --retry 3 \
+            -o arm.pkg.tar.xz \
+            'https://wii.leseratte10.de/devkitPro/devkitARM/r53%20%282019-06%29/devkitARM-r53-1-linux.pkg.tar.xz'
+
+          curl -fL --retry 3 \
+            -o ppc.pkg.tar.xz \
+            'https://wii.leseratte10.de/devkitPro/devkitPPC/r35/devkitPPC-r35-1-linux.pkg.tar.xz'
+
+          curl -fL --retry 3 \
+            -o libogc.pkg.tar.xz \
+            'https://wii.leseratte10.de/devkitPro/libogc/libogc_1.8.23%20%282019-10-02%29/libogc-1.8.23-1-any.pkg.tar.xz'
+
+          echo "=== Downloaded packages ==="
+          ls -lh *.pkg.tar.xz
+
+      - name: Install historical toolchains
         run: |
-          echo "=== Installed libOGC headers ==="
-          find /opt/devkitpro/libogc/include \
-            -iname '*lwp*' -o -iname '*system*'
+          cd /tmp/nintendont-tools
 
-          echo "=== Legacy definitions ==="
-          grep -RnE \
-            'STACK_ALIGN|__lwp_thread_stopmultitasking|define read32|define write32' \
-            /opt/devkitpro/libogc/include \
-            /opt/devkitpro/devkitPPC 2>/dev/null \
-            | head -80 || true
+          echo "=== Package structure ==="
+          tar -tf arm.pkg.tar.xz | head -15 || true
+          tar -tf ppc.pkg.tar.xz | head -15 || true
+          tar -tf libogc.pkg.tar.xz | head -15 || true
 
-          echo "=== Available symbols ==="
-          find /opt/devkitpro/libogc -name '*.a' \
-            -exec powerpc-eabi-nm -A {} \; 2>/dev/null \
-            | grep -E \
-            '__lwp_thread_stopmultitasking|read32|write32' \
-            | head -40 || true
+          rm -rf /opt/devkitpro/devkitARM
+          rm -rf /opt/devkitpro/devkitPPC
+          rm -rf /opt/devkitpro/libogc
 
-      - name: Prepare legacy header compatibility
-        run: |
-          mkdir -p compat/ogc
+          tar -xJf arm.pkg.tar.xz -C /
+          tar -xJf ppc.pkg.tar.xz -C /
+          tar -xJf libogc.pkg.tar.xz -C /
 
-          cat > compat/ogc/lwp_threads.h <<'EOF'
-          #ifndef NINTENDONT_LEGACY_LWP_THREADS_H
-          #define NINTENDONT_LEGACY_LWP_THREADS_H
+          echo "=== Installed compilers ==="
+          /opt/devkitpro/devkitARM/bin/arm-none-eabi-gcc --version
+          /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc --version
 
-          #include <ogc/lwp.h>
-
-          #endif
-          EOF
+          echo "=== libOGC ==="
+          ls /opt/devkitpro/libogc/include/ogc/lwp_threads.h
 
       - name: Compile Nintendont
         run: |
-          export C_INCLUDE_PATH="$GITHUB_WORKSPACE/compat"
+          export PATH="$DEVKITPPC/bin:$DEVKITARM/bin:$PATH"
           make -j1
 
-      - name: Find generated files
+      - name: Locate generated DOL
         if: success()
         run: |
           find . -type f -name '*.dol' -print
 
-      - name: Upload build
+      - name: Upload Nintendont
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: NintendontWiiPro-test
-          path: nintendont/boot.dol
+          path: loader/loader.dol
           if-no-files-found: error
           
