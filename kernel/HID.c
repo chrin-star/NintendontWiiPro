@@ -96,9 +96,9 @@ static void SwitchProTranslate(void)
     u32 ry = ((u32)Packet[10] >> 4) | ((u32)Packet[11] << 4);
     /* Layout is private to 057E_2009.ini, NOT the raw Switch report. */
     ((u8*)HID_Packet)[0] = 0x30;
-    ((u8*)HID_Packet)[1] = Packet[3];
-    ((u8*)HID_Packet)[2] = Packet[4];
-    ((u8*)HID_Packet)[3] = Packet[5];
+    ((u8*)HID_Packet)[1] = Packet[3]; /* A B X Y R ZR */
+    ((u8*)HID_Packet)[2] = Packet[4]; /* plus minus home stick buttons */
+    ((u8*)HID_Packet)[3] = Packet[5]; /* dpad L ZL */
     ((u8*)HID_Packet)[4] = SwitchProAxis(lx);
     ((u8*)HID_Packet)[5] = (u8)(255U - SwitchProAxis(ly));
     ((u8*)HID_Packet)[6] = SwitchProAxis(rx);
@@ -258,6 +258,14 @@ s32 HIDOpen( u32 LoaderRequest )
 
 			Offset += (InterfaceDescLength+3)&(~3);
 
+			/* Switch Pro USB endpoints confirmed by the standalone detector.
+			 * The generic parser below assumes OUT comes before IN; this
+			 * controller may enumerate them in the opposite order. */
+			if(DeviceVID == 0x057e && DevicePID == 0x2009)
+				bEndpointAddressOut = 0x01;
+			else
+				bEndpointAddressOut = 0;
+
 			u32 EndpointDescLengthO = *(vu8*)(HIDHeap+Offset);
 
 			u32 bEndpointAddress = *(vu8*)(HIDHeap+Offset+2);
@@ -269,6 +277,13 @@ s32 HIDOpen( u32 LoaderRequest )
 			}
 			bEndpointAddress = *(vu8*)(HIDHeap+Offset+2);
 			wMaxPacketSize   = *(vu16*)(HIDHeap+Offset+4);
+			if(DeviceVID == 0x057e && DevicePID == 0x2009)
+			{
+				bEndpointAddress = 0x81;
+				bEndpointAddressOut = 0x01;
+				wMaxPacketSize = 64;
+			}
+
 
 			dbgprintf("HID:bEndpointAddress:%02X\r\n", bEndpointAddress );
 			dbgprintf("HID:wMaxPacketSize  :%u\r\n", wMaxPacketSize );
@@ -627,7 +642,7 @@ s32 HIDOpen( u32 LoaderRequest )
 				sync_after_write(Packet, MemPacketSize);
 
 				memset32(HID_Packet, 0, MemPacketSize);
-				if(SwitchProActive) { ((u8*)HID_Packet)[4] = 128; ((u8*)HID_Packet)[5] = 128; ((u8*)HID_Packet)[6] = 128; ((u8*)HID_Packet)[7] = 128; }
+                if(SwitchProActive) { ((u8*)HID_Packet)[4] = 128; ((u8*)HID_Packet)[5] = 128; ((u8*)HID_Packet)[6] = 128; ((u8*)HID_Packet)[7] = 128; }
 				sync_after_write(HID_Packet, MemPacketSize);
 
 				bool Polltype = HID_CTRL->Polltype;
