@@ -1,47 +1,123 @@
 
-name: Diagnose Nintendont Toolchain
+name: Build Nintendont Wii Pro
 
 on:
   push:
   workflow_dispatch:
 
 jobs:
-  diagnose:
+  build:
     runs-on: ubuntu-latest
 
     container:
       image: devkitpro/devkitppc:latest
 
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      DEVKITARM: /opt/devkitpro/devkitARM
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download historical PPC package
+      - name: Preserve build rules
         run: |
+          set -eu
+
+          mkdir -p /tmp/nintendont-rules
+
+          cp /opt/devkitpro/devkitPPC/base_rules \
+            /tmp/nintendont-rules/
+
+          cp /opt/devkitpro/devkitPPC/wii_rules \
+            /tmp/nintendont-rules/
+
+          cp /opt/devkitpro/devkitPPC/gamecube_rules \
+            /tmp/nintendont-rules/
+
+          echo "=== Preserved rules ==="
+          ls -lh /tmp/nintendont-rules/
+
+      - name: Download historical toolchains
+        run: |
+          set -eu
+
+          mkdir -p /tmp/nintendont-tools
+          cd /tmp/nintendont-tools
+
           curl -fL --retry 3 \
-            -o /tmp/ppc.pkg.tar.xz \
+            -o arm.pkg.tar.xz \
+            'https://wii.leseratte10.de/devkitPro/devkitARM/r53%20%282019-06%29/devkitARM-r53-1-linux.pkg.tar.xz'
+
+          curl -fL --retry 3 \
+            -o ppc.pkg.tar.xz \
             'https://wii.leseratte10.de/devkitPro/devkitPPC/r35/devkitPPC-r35-1-linux.pkg.tar.xz'
 
-      - name: Inspect package and rules
+          curl -fL --retry 3 \
+            -o libogc.pkg.tar.xz \
+            'https://wii.leseratte10.de/devkitPro/libogc/libogc_1.8.23%20%282019-10-02%29/libogc-1.8.23-1-any.pkg.tar.xz'
+
+          echo "=== Downloaded packages ==="
+          ls -lh *.pkg.tar.xz
+
+      - name: Install historical toolchains
         run: |
-          echo "=== PACKAGE CONTENTS ==="
-          tar -tf /tmp/ppc.pkg.tar.xz \
-            | grep -E 'wii_rules|base_rules|gamecube_rules|bin/powerpc-eabi-gcc' \
-            || true
+          set -eu
 
-          echo "=== PACKAGE ROOT ==="
-          tar -tf /tmp/ppc.pkg.tar.xz | head -30 || true
+          cd /tmp/nintendont-tools
 
-          echo "=== CURRENT INSTALLATION ==="
-          find /opt/devkitpro \
-            -name 'wii_rules' \
-            -o -name 'base_rules' \
-            -o -name 'gamecube_rules'
+          rm -rf /opt/devkitpro/devkitARM
+          rm -rf /opt/devkitpro/devkitPPC
+          rm -rf /opt/devkitpro/libogc
 
-          echo "=== FATFS MAKEFILE ==="
-          sed -n '1,100p' fatfs/Makefile.ppc
+          tar -xJf arm.pkg.tar.xz -C /
+          tar -xJf ppc.pkg.tar.xz -C /
+          tar -xJf libogc.pkg.tar.xz -C /
 
-          echo "=== CURRENT VARIABLES ==="
-          echo "DEVKITPRO=$DEVKITPRO"
-          echo "DEVKITPPC=$DEVKITPPC"
+          echo "=== Restore build rules ==="
+
+          cp /tmp/nintendont-rules/* \
+            /opt/devkitpro/devkitPPC/
+
+          echo "=== Verify required files ==="
+
+          test -f "$DEVKITPPC/wii_rules"
+          test -f "$DEVKITPPC/base_rules"
+          test -f "$DEVKITPPC/gamecube_rules"
+
+          test -f \
+            "$DEVKITPRO/libogc/include/ogc/lwp_threads.h"
+
+          echo "=== Compiler versions ==="
+
+          "$DEVKITARM/bin/arm-none-eabi-gcc" --version
+          "$DEVKITPPC/bin/powerpc-eabi-gcc" --version
+
+          echo "=== Rules restored successfully ==="
+          ls -lh "$DEVKITPPC/"*rules
+
+      - name: Compile Nintendont
+        run: |
+          set -eu
+
+          export PATH="$DEVKITPPC/bin:$DEVKITARM/bin:$PATH"
+
+          make -j1
+
+      - name: Locate generated DOL
+        if: success()
+        run: |
+          echo "=== Generated DOL files ==="
+          find . -type f -name '*.dol' -print
+
+      - name: Upload compiled DOL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NintendontWiiPro-test
+          path: |
+            loader/*.dol
+            loader/boot.dol
+          if-no-files-found: error
           
