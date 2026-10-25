@@ -21,23 +21,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Preserve build rules
+      - name: Preserve original build files
         run: |
           set -eu
 
           mkdir -p /tmp/nintendont-rules
 
-          cp /opt/devkitpro/devkitPPC/base_rules \
-            /tmp/nintendont-rules/
+          find "$DEVKITPPC" \
+            -maxdepth 1 \
+            -type f \
+            -exec cp -v {} /tmp/nintendont-rules/ \;
 
-          cp /opt/devkitpro/devkitPPC/wii_rules \
-            /tmp/nintendont-rules/
+          echo "=== Preserved files ==="
+          ls -lah /tmp/nintendont-rules/
 
-          cp /opt/devkitpro/devkitPPC/gamecube_rules \
-            /tmp/nintendont-rules/
-
-          echo "=== Preserved rules ==="
-          ls -lh /tmp/nintendont-rules/
+          test -f /tmp/nintendont-rules/wii_rules
+          test -f /tmp/nintendont-rules/base_rules
+          test -f /tmp/nintendont-rules/base_tools
 
       - name: Download historical toolchains
         run: |
@@ -67,23 +67,23 @@ jobs:
 
           cd /tmp/nintendont-tools
 
-          rm -rf /opt/devkitpro/devkitARM
-          rm -rf /opt/devkitpro/devkitPPC
-          rm -rf /opt/devkitpro/libogc
+          rm -rf "$DEVKITARM"
+          rm -rf "$DEVKITPPC"
+          rm -rf "$DEVKITPRO/libogc"
 
           tar -xJf arm.pkg.tar.xz -C /
           tar -xJf ppc.pkg.tar.xz -C /
           tar -xJf libogc.pkg.tar.xz -C /
 
-          echo "=== Restore build rules ==="
+          echo "=== Restore original build files ==="
 
-          cp /tmp/nintendont-rules/* \
-            /opt/devkitpro/devkitPPC/
+          cp -v /tmp/nintendont-rules/* "$DEVKITPPC/"
 
-          echo "=== Verify required files ==="
+          echo "=== Verify dependencies ==="
 
           test -f "$DEVKITPPC/wii_rules"
           test -f "$DEVKITPPC/base_rules"
+          test -f "$DEVKITPPC/base_tools"
           test -f "$DEVKITPPC/gamecube_rules"
 
           test -f \
@@ -94,8 +94,9 @@ jobs:
           "$DEVKITARM/bin/arm-none-eabi-gcc" --version
           "$DEVKITPPC/bin/powerpc-eabi-gcc" --version
 
-          echo "=== Rules restored successfully ==="
-          ls -lh "$DEVKITPPC/"*rules
+          echo "=== Restored files ==="
+          ls -lah "$DEVKITPPC/"*rules
+          ls -lah "$DEVKITPPC/"*tools
 
       - name: Compile Nintendont
         run: |
