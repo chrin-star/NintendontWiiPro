@@ -95,14 +95,14 @@ static void SwitchProTranslate(void)
     u32 rx = (u32)Packet[9] | (((u32)Packet[10] & 15U) << 8);
     u32 ry = ((u32)Packet[10] >> 4) | ((u32)Packet[11] << 4);
     /* Layout is private to 057E_2009.ini, NOT the raw Switch report. */
-    HID_Packet[0] = 0x30;
-    HID_Packet[1] = Packet[3]; /* A B X Y R ZR */
-    HID_Packet[2] = Packet[4]; /* plus minus home stick buttons */
-    HID_Packet[3] = Packet[5]; /* dpad L ZL */
-    HID_Packet[4] = SwitchProAxis(lx);
-    HID_Packet[5] = (u8)(255U - SwitchProAxis(ly));
-    HID_Packet[6] = SwitchProAxis(rx);
-    HID_Packet[7] = (u8)(255U - SwitchProAxis(ry));
+    ((u8*)HID_Packet)[0] = 0x30;
+    ((u8*)HID_Packet)[1] = Packet[3];
+    ((u8*)HID_Packet)[2] = Packet[4];
+    ((u8*)HID_Packet)[3] = Packet[5];
+    ((u8*)HID_Packet)[4] = SwitchProAxis(lx);
+    ((u8*)HID_Packet)[5] = (u8)(255U - SwitchProAxis(ly));
+    ((u8*)HID_Packet)[6] = SwitchProAxis(rx);
+    ((u8*)HID_Packet)[7] = (u8)(255U - SwitchProAxis(ry));
     sync_after_write(HID_Packet, 32);
 }
 
