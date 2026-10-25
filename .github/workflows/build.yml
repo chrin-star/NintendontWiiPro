@@ -1,0 +1,50 @@
+name: Build Nintendont Wii Pro
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inspect toolchains
+        run: |
+          echo "DEVKITPRO=$DEVKITPRO"
+          echo "DEVKITPPC=$DEVKITPPC"
+          echo "DEVKITARM=$DEVKITARM"
+          powerpc-eabi-gcc --version || true
+          arm-none-eabi-gcc --version || true
+
+      - name: Install ARM toolchain if missing
+        run: |
+          if ! command -v arm-none-eabi-gcc >/dev/null 2>&1; then
+            dkp-pacman -Sy --noconfirm devkitARM
+          fi
+
+      - name: Compile Nintendont
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITPPC=/opt/devkitpro/devkitPPC
+          export DEVKITARM=/opt/devkitpro/devkitARM
+          make -j1
+
+      - name: Find generated DOL
+        if: success()
+        run: |
+          find . -type f -name '*.dol' -print
+
+      - name: Upload build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NintendontWiiPro-test
+          path: loader/loader.dol
+          if-no-files-found: error
+          
