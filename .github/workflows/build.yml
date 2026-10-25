@@ -1,3 +1,4 @@
+
 name: Build Nintendont Wii Pro
 
 on:
@@ -26,11 +27,25 @@ jobs:
             dkp-pacman -Sy --noconfirm devkitARM
           fi
 
-      - name: Check libOGC headers
+      - name: Diagnose legacy libOGC API
         run: |
-          echo "Checking available LWP headers..."
+          echo "=== Installed libOGC headers ==="
           find /opt/devkitpro/libogc/include \
-            -iname '*lwp*' -print
+            -iname '*lwp*' -o -iname '*system*'
+
+          echo "=== Legacy definitions ==="
+          grep -RnE \
+            'STACK_ALIGN|__lwp_thread_stopmultitasking|define read32|define write32' \
+            /opt/devkitpro/libogc/include \
+            /opt/devkitpro/devkitPPC 2>/dev/null \
+            | head -80 || true
+
+          echo "=== Available symbols ==="
+          find /opt/devkitpro/libogc -name '*.a' \
+            -exec powerpc-eabi-nm -A {} \; 2>/dev/null \
+            | grep -E \
+            '__lwp_thread_stopmultitasking|read32|write32' \
+            | head -40 || true
 
       - name: Prepare legacy header compatibility
         run: |
@@ -44,8 +59,6 @@ jobs:
 
           #endif
           EOF
-
-          echo "Compatibility header created."
 
       - name: Compile Nintendont
         run: |
